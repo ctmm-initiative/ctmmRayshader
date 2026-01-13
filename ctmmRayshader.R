@@ -642,21 +642,15 @@ make_hillshade=function(landsat_rgb_cropped, elevation_cropped, akde_list=NULL, 
 #   
 plot_rayshader=function(individuals,df=df, FIT_list=NULL,
                         sim_path=FALSE,AKDE=FALSE,AKDE_color_list = NULL,
-                        show_data = FALSE,padding =.05,animate_shadows=FALSE,spin_animation=FALSE,sim_animation=FALSE,
+                        show_data = FALSE,padding =.05,animate_shadows=FALSE,spin_animation=FALSE,sim_animation=FALSE,path_animation=FALSE,
                         season="summer", shadow_intesity=.5, stretch=c(.001,999), animation_duration=30,Upscale_factor=1){
   
 
   
   #make sure the data is in the form as a telemetry object for an individual
   if (class(df)!="list" & class(df)!="telemetry"){
-    #print("DATA 1")
-    print(length(df$individual.local.identifier))
-    print(individuals)
-    print(class(individuals))
+ 
     DATA=df[df$individual.local.identifier %in%  individuals,]
-
-    # colnames(DATA)[colnames(DATA) == "location.long"] <- "longitude"
-    # colnames(DATA)[colnames(DATA) == "location.lat"] <- "latitude"
     DATA=ctmm::as.telemetry(DATA)
     #print("1.2")
   }else if(class(df)=="list"){
@@ -746,7 +740,7 @@ plot_rayshader=function(individuals,df=df, FIT_list=NULL,
   # get landsat api end point
  
   landsat_obj=get_landsat(df_bbox, time_interval)
-  return(landsat_obj)
+ 
   #print("landsat object made")
   
   #This nested for loop will find the lansat rasters that have the min cloud cover over the study area
@@ -836,17 +830,17 @@ plot_rayshader=function(individuals,df=df, FIT_list=NULL,
   
   
   
-  if(AKDE==FALSE & sim_path==FALSE){
-    return(list(landsat=landsat_rgb_cropped,
-                elvation=elevation_cropped))
-  }else{
-    return(list(landsat=landsat_rgb_cropped,
-                elvation=elevation_cropped,
-                combined_CI=combined_CI,
-                akde_list=akde_list,
-                FIT_list=FIT_list))
-  }
-  
+  # if(AKDE==FALSE & sim_path==FALSE){
+  #   return(list(landsat=landsat_rgb_cropped,
+  #               elvation=elevation_cropped))
+  # }else{
+  #   return(list(landsat=landsat_rgb_cropped,
+  #               elvation=elevation_cropped,
+  #               combined_CI=combined_CI,
+  #               akde_list=akde_list,
+  #               FIT_list=FIT_list))
+  # }
+  # 
   
   
 #}
@@ -953,7 +947,7 @@ print("5")
       
       SUB <- df[1:length(df$t),]
       
-      SEQ <- seq(from=SUB$t[1],to=SUB$t[length(df$t)],by=10 %#% 'sec')
+      SEQ <- seq(from=SUB$t[1],to=SUB$t[length(df$t)],by=1 %#% 'min')
       #SIM <- simulate(SUB,FIT,t=SEQ, complete=TRUE) 
       SIM <- predict(SUB,FIT,t=SEQ, complete=TRUE) 
       lat=c(lat,SIM$latitude)
@@ -1065,7 +1059,67 @@ print("5")
   
 
   #############################################################################################################
-  if(spin_animation==TRUE & animate_shadows==FALSE){
+if(path_animation==TRUE){
+  j=1
+  print(table(SIM_locations_utm$identity))
+  print(names(which.min(table(SIM_locations_utm$identity))))
+  
+  num_frames=min(table(SIM_locations_utm$identity))
+  for(i in 1:num_frames) {
+    
+  rayshader::plot_3d(hillshade_rgb_array, elevation_matrix, windowsize = c(900,900), zscale = 30/Upscale_factor, shadowdepth = -50,
+                     zoom=.65, phi=50,theta=90,fov=70, background = "#F2E1D0", shadowcolor = "#523E2B")
+  k=1
+  for(individual in individuals){
+    SIM_individual=SIM_locations_utm[SIM_locations_utm$identity==individual,]
+    utm_y=SIM_individual$y
+    utm_x=SIM_individual$x
+    render_path(extent=attr(elevation_cropped,"extent"),
+                #lat=unlist(utm_y), long=unlist(utm_x),
+                lat=c(utm_y), long=utm_x,
+                heightmap = rayshader::raster_to_matrix(elevation_cropped),
+                #altitude = df_individual$height.above.ellipsoid,
+                resample_evenly = TRUE,
+                resample_n = 1000,
+                reorder=TRUE,
+                zscale=30/Upscale_factor,
+                color=colors[k],
+                antialias=TRUE
+    )
+    
+    sim_point=i*(length(SIM_individual$y)/num_frames)
+    render_points(extent=attr(elevation_cropped,"extent"),
+                  lat=utm_y[sim_point], long=utm_x[sim_point],
+                  heightmap = rayshader::raster_to_matrix(elevation_cropped),
+                  # altitude = df_individual$height.above.ellipsoid,
+                  size=10,
+                  zscale=30/Upscale_factor,
+                  #color=color_vector$color
+                  color="white"
+    )
+    
+    k=k+1
+  }
+  
+  # angles= seq(0,360,length.out = num_frames)[-1]
+  
+    
+    
+    render_snapshot(filename = sprintf("animation/landsat_hillshade%i.png", j))
+
+    j=j+1
+    
+  }
+  #close3d()
+  print(paste0("fps=",num_frames/animation_duration))
+  av::av_encode_video(sprintf("animation/landsat_hillshade%d.png",seq(1,num_frames,by=1)), framerate = num_frames/animation_duration,
+                      output = "Rayshader_spin_animation.mp4")
+  system("ffmpeg -framerate 30 -i animation/landsat_hillshade%d.png -pix_fmt yuv420p Rayshader_spin_animation.mp4")
+  
+  return()
+}  
+
+if(spin_animation==TRUE & animate_shadows==FALSE){
     
     rayshader::plot_3d(hillshade_rgb_array, elevation_matrix, windowsize = c(900,900), zscale = 30/Upscale_factor, shadowdepth = -50,
                        zoom=.65, phi=50,theta=90,fov=70, background = "#F2E1D0", shadowcolor = "#523E2B")
@@ -1143,13 +1197,15 @@ print("5")
   if(sim_path==TRUE){
     i=1
     for(individual in individuals){
+      print(paste0("plotting", individual, "simuation path"))
+      print(i)
       SIM_individual=SIM_locations_utm[SIM_locations_utm$identity==individual,]
       
       utm_y=SIM_individual$y
       utm_x=SIM_individual$x
       render_path(extent=attr(elevation_cropped,"extent"),
                   #lat=unlist(utm_y), long=unlist(utm_x),
-                  lat=c(utm_y), long=utm_x,
+                  lat=utm_y, long=utm_x,
                   heightmap = rayshader::raster_to_matrix(elevation_cropped),
                   #altitude = df_individual$height.above.ellipsoid,
                   resample_evenly = TRUE,
